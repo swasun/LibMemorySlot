@@ -20,14 +20,21 @@ set(EXAMPLES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/examples")
 
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
     set(LIBRARY_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/bin/release")
-    set(EXAMPLES_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/bin/release/examples")
+    set(EXAMPLES_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/bin/release")
 elseif (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(LIBRARY_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/bin/debug")
-    set(EXAMPLES_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/bin/debug/examples")
+    set(EXAMPLES_OUTPUT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/bin/debug")
 endif ()
 
-
 # --- COMPILE OPTIONS ---
+
+if (MSVC)
+    # Use secure functions by defaualt and suppress warnings about
+    #"deprecated" functions
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /D _CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES=1")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /D _CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES_COUNT=1")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /D _CRT_NONSTDC_NO_WARNINGS=1 /D _CRT_SECURE_NO_WARNINGS=1")
+endif ()
 
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")     ## (not debug)
     if(CMAKE_COMPILER_IS_GNUCXX)              ## (GNU COMMAND)
@@ -41,15 +48,18 @@ endif ()
 if (UNIX)
     add_compile_options("-std=gnu99" "-pthread" "-ldl")
 elseif (WIN32)
-    add_compile_options("std=c99" "lkernel32" "lntdll")
     if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-        add_compile_options("-static-libgcc" "-ggdb")
+        add_compile_options("static-libgcc" "ggdb")
     endif ()
+	set(CMAKE_C_FLAGS "${CMAKE_ENABLE_C99}")
 else ()
     add_compile_options("-std=c99")
 endif ()
 
-add_compile_options("-Wall" "-pedantic" "-fno-builtin")
+if (UNIX)
+	add_compile_options("-Wall" "-pedantic" "-fno-builtin")
+endif ()
+
 
 if (WIN32)
     macro(get_WIN32_WINNT version)
@@ -82,6 +92,11 @@ if (UNIX)
 	find_package (Threads)
 endif ()
 
+# Search LibErrorInterceptor
+
+if (WIN32)
+	set(LIBERRORINTERCEPTOR_INCLUDE "C:\\LibErrorInterceptor\\x86-Release\\include")
+endif ()
 
 # --- BUILD LIBERRORINTERCEPTOR ---
 
@@ -95,15 +110,18 @@ file(GLOB_RECURSE PROGRAM_TARGET_SRC_FILES "${SRC_PATH}/*.*")
 # Build shared library
 add_library(${PROJECT_NAME_SHARED} SHARED ${PROGRAM_TARGET_SRC_FILES})
 target_include_directories(${PROJECT_NAME_SHARED} PUBLIC "${SRC_PATH}")
+target_include_directories(${PROJECT_NAME_SHARED} PUBLIC "${LIBERRORINTERCEPTOR_INCLUDE}")
 set_target_properties(${PROJECT_NAME_SHARED} PROPERTIES OUTPUT_NAME ms)
 target_link_libraries(${PROJECT_NAME_SHARED} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(${PROJECT_NAME_SHARED} ${CMAKE_CURRENT_SOURCE_DIR}/lib/ei.lib)
 
 # Build static library
 add_library(${PROJECT_NAME_STATIC} STATIC ${PROGRAM_TARGET_SRC_FILES})
 target_include_directories(${PROJECT_NAME_STATIC} PUBLIC "${SRC_PATH}")
+target_include_directories(${PROJECT_NAME_STATIC} PUBLIC "${LIBERRORINTERCEPTOR_INCLUDE}")
 set_target_properties(${PROJECT_NAME_STATIC} PROPERTIES OUTPUT_NAME ms)
 target_link_libraries(${PROJECT_NAME_STATIC} ${CMAKE_THREAD_LIBS_INIT})
-
+target_link_libraries(${PROJECT_NAME_STATIC} ${CMAKE_CURRENT_SOURCE_DIR}/lib/ei.lib)
 
 # --- INSTALL ---
 
@@ -116,6 +134,21 @@ if (UNIX)
 
     # Copy shared library
     install (TARGETS ${PROJECT_NAME_SHARED} LIBRARY DESTINATION "/usr/lib")
+elseif (WIN32)
+	# Copy includes
+    install(DIRECTORY ${CMAKE_SOURCE_DIR}/src/ DESTINATION ${CMAKE_INSTALL_PREFIX}/include FILES_MATCHING PATTERN "*.h")
+
+	# Copy static library
+	install (
+		TARGETS ${PROJECT_NAME_STATIC}
+		ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+		LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+	)
+
+	install (
+		TARGETS ${PROJECT_NAME_SHARED}
+		RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+	)
 endif ()
 
 # Build examples
@@ -124,8 +157,8 @@ foreach (filePath ${files} )
 	get_filename_component(executableName ${filePath} NAME_WE)
 	message(STATUS "Build Program : ${executableName}")
 	add_executable(${executableName} ${filePath})
+	target_include_directories(${executableName} PUBLIC "${LIBERRORINTERCEPTOR_INCLUDE}")
     target_link_libraries(${executableName} ${PROJECT_NAME_STATIC})
-	if (UNIX)
-		set_target_properties(${executableName} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${EXAMPLES_OUTPUT_PATH})
-	endif ()
+	target_link_libraries(${executableName} ${CMAKE_CURRENT_SOURCE_DIR}/lib/ei.lib)
+	set_target_properties(${executableName} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${EXAMPLES_OUTPUT_PATH})
 endforeach ()
